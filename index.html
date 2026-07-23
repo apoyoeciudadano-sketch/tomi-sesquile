@@ -384,21 +384,24 @@ function showTyping(cb){
 }
 
 /* ============ Lógica principal ============ */
-function handleQuery(rawQuery){
+// URL de tu Worker de Cloudflare (RAG + IA). Se configura al desplegarlo.
+const WORKER_URL = "https://tomi-sesquile-chat.apoyo-eciudadano.workers.dev";
+const AI_TIMEOUT_MS = 8000;
+
+// Devuelve {text, opts} en vez de pintar el mensaje directamente, para poder
+// mantener el indicador de "escribiendo" visible mientras se espera al Worker.
+async function handleQuery(rawQuery){
   const norm = normalize(rawQuery);
   const tokens = rawTokenize(rawQuery);
 
   if(norm.length <= 2){
-    addBotMessage(MSG_CONFUSO);
-    return;
+    return { text: MSG_CONFUSO };
   }
   if(isFarewell(norm)){
-    addBotMessage(MSG_DESPEDIDA);
-    return;
+    return { text: MSG_DESPEDIDA };
   }
   if(isGreetingOnly(norm, tokens)){
-    addBotMessage(MSG_SOLO_SALUDO);
-    return;
+    return { text: MSG_SOLO_SALUDO };
   }
   const intentMatch = matchIntent(rawQuery);
   const results = searchKB(rawQuery);
@@ -410,27 +413,60 @@ function handleQuery(rawQuery){
   const kbIsStrongEnough = kbTop && kbTop.score >= 8;
 
   if(intentMatch && !(intentIsWeak && kbIsStrongEnough)){
-    addBotMessage(intentMatch.entry.respuesta);
-    return;
+    return { text: intentMatch.entry.respuesta };
   }
   if(results.length===0){
-    addBotMessage(MSG_NO_SABE);
-    return;
+    return { text: MSG_NO_SABE };
   }
+
   const top = results[0];
   const alternates = results.slice(1,4).filter(r=>r.score >= top.score*0.4);
-  addBotMessage(formatAnswer(top.e), {meta: top.e.s + ' · ' + top.e.t, alternates});
+  const opts = {meta: top.e.s + ' · ' + top.e.t, alternates};
+  const localFallbackText = formatAnswer(top.e);
+
+  if(!WORKER_URL || WORKER_URL.indexOf('__WORKER_URL__')>=0){
+    return { text: localFallbackText, opts };
+  }
+
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(()=>controller.abort(), AI_TIMEOUT_MS);
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ query: rawQuery }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if(!res.ok) throw new Error('worker respondió ' + res.status);
+    const data = await res.json();
+    if(!data.reply) throw new Error('sin reply');
+    return { text: data.reply, opts };
+  }catch(err){
+    return { text: localFallbackText, opts };
+  }
 }
 
 sendBtn.addEventListener('click', submitQuery);
 inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter') submitQuery(); });
 
-function submitQuery(){
+async function submitQuery(){
   const val = inputEl.value.trim();
   if(!val) return;
   addUserMessage(val);
   inputEl.value = '';
-  showTyping(()=> handleQuery(val));
+
+  const typingWrap = document.createElement('div');
+  typingWrap.className = 'msg bot';
+  typingWrap.innerHTML = '<div class="mini-avatar"><img src="'+AVATAR_SRC+'" alt="Tomi"></div><div class="bcol"><div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>';
+  messagesEl.appendChild(typingWrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const minDelay = new Promise(r=>setTimeout(r, 400 + Math.random()*300));
+  const [result] = await Promise.all([ handleQuery(val), minDelay ]);
+
+  typingWrap.remove();
+  addBotMessage(result.text, result.opts);
 }
 
 const QUICK_CHIPS = [

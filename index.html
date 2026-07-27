@@ -388,6 +388,19 @@ function showTyping(cb){
 const WORKER_URL = "https://tomi-sesquile-chat.apoyo-eciudadano.workers.dev";
 const AI_TIMEOUT_MS = 8000;
 
+// Historial de la conversación (para que Tomi entienda preguntas de seguimiento).
+// Solo guardamos los turnos que pasaron por el Worker/IA — no saludos, despedidas, etc.
+// role: 'user' | 'model'
+let conversationHistory = [];
+const MAX_HISTORY_TURNS = 6;
+
+function pushHistory(role, text){
+  conversationHistory.push({ role, text });
+  if(conversationHistory.length > MAX_HISTORY_TURNS){
+    conversationHistory = conversationHistory.slice(-MAX_HISTORY_TURNS);
+  }
+}
+
 // Devuelve {text, opts} en vez de pintar el mensaje directamente, para poder
 // mantener el indicador de "escribiendo" visible mientras se espera al Worker.
 async function handleQuery(rawQuery){
@@ -398,6 +411,7 @@ async function handleQuery(rawQuery){
     return { text: MSG_CONFUSO };
   }
   if(isFarewell(norm)){
+    conversationHistory = []; // conversación terminada, empezamos de cero la próxima vez
     return { text: MSG_DESPEDIDA };
   }
   if(isGreetingOnly(norm, tokens)){
@@ -434,7 +448,7 @@ async function handleQuery(rawQuery){
     const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ query: rawQuery }),
+      body: JSON.stringify({ query: rawQuery, history: conversationHistory }),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -467,6 +481,10 @@ async function submitQuery(){
 
   typingWrap.remove();
   addBotMessage(result.text, result.opts);
+
+  // Guardamos el turno en el historial para la próxima pregunta.
+  pushHistory('user', val);
+  pushHistory('model', result.text);
 }
 
 const QUICK_CHIPS = [

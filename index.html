@@ -78,6 +78,15 @@
     border:1px solid #e4ddc9;
     border-top-left-radius:4px;
   }
+  .msg.bot .bubble a{
+    color:var(--green);
+    font-weight:600;
+    text-decoration:underline;
+    word-break:break-word;
+  }
+  .msg.bot .bubble a:hover{
+    color:var(--green-dark);
+  }
   .msg.user .bubble{
     background:var(--bubble-user);
     color:#fff;
@@ -321,6 +330,44 @@ function addUserMessage(text){
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function escapeHtml(str){
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Convierte URLs, correos y teléfonos de un texto plano (ya escapado) en enlaces clicables.
+// El texto de entrada SIEMPRE debe pasar primero por escapeHtml() — este función no
+// escapa nada, solo envuelve coincidencias con <a>, para no volver a escapar las etiquetas
+// que ella misma inserta.
+function linkifyText(safeText){
+  // URLs (http/https o que empiecen por www.)
+  let out = safeText.replace(
+    /((https?:\/\/|www\.)[^\s<>"']+)/gi,
+    (match)=>{
+      let url = match;
+      // separamos puntuación final que probablemente no es parte del enlace (. , ) ] etc.)
+      let trail = '';
+      const trailMatch = url.match(/[.,;:)\]]+$/);
+      if(trailMatch){
+        trail = trailMatch[0];
+        url = url.slice(0, -trail.length);
+      }
+      const href = url.startsWith('http') ? url : 'https://' + url;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
+    }
+  );
+  // Correos electrónicos
+  out = out.replace(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+    (match)=> `<a href="mailto:${match}">${match}</a>`
+  );
+  return out;
+}
+
 function addBotMessage(text, opts){
   opts = opts || {};
   const wrap = document.createElement('div');
@@ -336,7 +383,7 @@ function addBotMessage(text, opts){
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  bubble.textContent = text;
+  bubble.innerHTML = linkifyText(escapeHtml(text));
   bcol.appendChild(bubble);
 
   if(opts.meta){

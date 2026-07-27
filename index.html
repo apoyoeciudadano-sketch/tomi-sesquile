@@ -98,6 +98,31 @@
     margin-top:2px;
     padding:0 4px;
   }
+  .feedback-row{
+    display:flex;
+    gap:4px;
+    margin-top:4px;
+    padding:0 4px;
+    align-items:center;
+  }
+  .feedback-btn{
+    background:none;
+    border:1px solid transparent;
+    border-radius:8px;
+    font-size:13px;
+    padding:2px 6px;
+    cursor:pointer;
+    opacity:.55;
+    transition:opacity .15s, border-color .15s;
+  }
+  .feedback-btn:hover{
+    opacity:1;
+    border-color:#d8d2bd;
+  }
+  .feedback-btn:disabled{
+    opacity:.3;
+    cursor:default;
+  }
   .suggestions{
     display:flex;
     flex-direction:column;
@@ -391,6 +416,35 @@ function addBotMessage(text, opts){
     meta.className = 'meta';
     meta.textContent = opts.meta;
     bcol.appendChild(meta);
+
+    // Feedback 👍👎 — solo en respuestas que vinieron del portafolio/IA (no en saludos, etc.)
+    const fb = document.createElement('div');
+    fb.className = 'feedback-row';
+    const upBtn = document.createElement('button');
+    upBtn.className = 'feedback-btn';
+    upBtn.textContent = '👍';
+    upBtn.title = 'Esto me sirvió';
+    const downBtn = document.createElement('button');
+    downBtn.className = 'feedback-btn';
+    downBtn.textContent = '👎';
+    downBtn.title = 'Esto no me sirvió';
+
+    const sendFeedback = (rating)=>{
+      upBtn.disabled = true; downBtn.disabled = true;
+      fb.innerHTML = '<span class="meta">¡Gracias por tu feedback!</span>';
+      if(WORKER_URL && WORKER_URL.indexOf('__WORKER_URL__')<0){
+        fetch(WORKER_URL, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ type: 'feedback', query: opts.userQuery || '', reply: text, rating })
+        }).catch(()=>{});
+      }
+    };
+    upBtn.onclick = ()=> sendFeedback('up');
+    downBtn.onclick = ()=> sendFeedback('down');
+    fb.appendChild(upBtn);
+    fb.appendChild(downBtn);
+    bcol.appendChild(fb);
   }
 
   if(opts.alternates && opts.alternates.length){
@@ -482,7 +536,7 @@ async function handleQuery(rawQuery){
 
   const top = results[0];
   const alternates = results.slice(1,4).filter(r=>r.score >= top.score*0.4);
-  const opts = {meta: top.e.s + ' · ' + top.e.t, alternates};
+  const opts = {meta: top.e.s + ' · ' + top.e.t, alternates, userQuery: rawQuery};
   const localFallbackText = formatAnswer(top.e);
 
   if(!WORKER_URL || WORKER_URL.indexOf('__WORKER_URL__')>=0){
